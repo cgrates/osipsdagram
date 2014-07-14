@@ -9,7 +9,6 @@ package osipsdagram
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"net"
 )
@@ -20,7 +19,7 @@ type OsipsEvent struct {
 	Values     []string          // Populate single values here
 }
 
-func NewEventServer(addrStr string) (*OsipsEventServer, error) {
+func NewEventServer(addrStr string, eventHandlers map[string][]func(*OsipsEvent)) (*OsipsEventServer, error) {
 	var evSrv *OsipsEventServer
 	if addr, err := net.ResolveUDPAddr("udp", addrStr); err != nil {
 		return nil, err
@@ -28,24 +27,24 @@ func NewEventServer(addrStr string) (*OsipsEventServer, error) {
 		return nil, err
 	} else {
 		maxBuf := make([]byte, 0, 65457) // Given by opensips maximum datagram size
-		evSrv = &OsipsEventServer{conn: sock, eventsBuffer: bytes.NewBuffer(maxBuf)}
+		evSrv = &OsipsEventServer{conn: sock, eventsBuffer: bytes.NewBuffer(maxBuf), eventHandlers: eventHandlers}
 	}
 	return evSrv, nil
 }
 
 // Receives events from OpenSIPS server
 type OsipsEventServer struct {
-	conn         *net.UDPConn
-	eventsBuffer *bytes.Buffer
+	conn          *net.UDPConn
+	eventsBuffer  *bytes.Buffer
+	eventHandlers map[string][]func(*OsipsEvent)
 }
 
 func (evSrv *OsipsEventServer) ServeEvents() error {
+	var buf [512]byte
 	for {
-		buf := make([]byte, 512)
-		if _, _, err := evSrv.conn.ReadFromUDP(buf); err != nil {
+		if readBytes, _, err := evSrv.conn.ReadFromUDP(buf[0:]); err != nil {
 			return err
-		}
-		if err := evSrv.processReceivedData(buf); err != nil {
+		} else if err := evSrv.processReceivedData(buf[:readBytes]); err != nil {
 			return err
 		}
 
@@ -65,7 +64,7 @@ func (evSrv *OsipsEventServer) processReceivedData(rcvData []byte) error {
 		}
 		if newEvent, err := evSrv.generateEvent(); err != nil {
 			return err
-		} else if err := evSrv.processEvent(newEvent); err != nil {
+		} else if err := evSrv.dispatchEvent(newEvent); err != nil {
 			return err
 		}
 		evSrv.eventsBuffer.Reset() // Have finished consuming the previous event data, empty write buffer
@@ -84,7 +83,6 @@ func (evSrv *OsipsEventServer) generateEvent() (*OsipsEvent, error) {
 	} else {
 		ev.Name = string(eventName[:len(eventName)-1])
 	}
-
 	for {
 		valByte, err := evSrv.eventsBuffer.ReadBytes('\n')
 		if err != nil && err == io.EOF {
@@ -105,7 +103,11 @@ func (evSrv *OsipsEventServer) generateEvent() (*OsipsEvent, error) {
 	return ev, nil
 }
 
-func (evSrv *OsipsEventServer) processEvent(ev *OsipsEvent) error {
-	fmt.Printf("Got event: %+v\n", ev)
+func (evSrv *OsipsEventServer) dispatchEvent(ev *OsipsEvent) error {
+	if handlers, hasHandler := evSrv.eventHandlers[ev.Name]; hasHandler {
+		for _, handlerFunc := range handlers {
+			go handlerFunc(ev)
+		}
+	}
 	return nil
 }

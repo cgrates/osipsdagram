@@ -13,3 +13,32 @@ Join [CGRateS](http://www.cgrates.org/ "CGRateS Website") on Google Groups [here
 ## License ##
 OsipsDagram is released under the [MIT License](http://www.opensource.org/licenses/mit-license.php "MIT License").
 Copyright (C) ITsysCOM GmbH. All Rights Reserved.
+
+## Sample usage code ##
+```
+package main
+
+import (
+	"github.com/cgrates/osipsdagram"
+	"fmt"
+)
+
+
+func printEvent(ev *osipsdagram.OsipsEvent) {
+	fmt.Printf("Got event: %+v\n", ev)
+}
+
+func main() {
+	evsrv, err := osipsdagram.NewEventServer("localhost:2020", map[string][]func(*osipsdagram.OsipsEvent){
+		"E_SCRIPT_EVENT": []func(*osipsdagram.OsipsEvent){printEvent}})
+	if err != nil {
+		fmt.Printf("Cannot create new server: %s", err.Error())
+		return
+	}
+	if err := evsrv.ServeEvents(); err != nil {
+		fmt.Printf("Cannot create new server: %s", err.Error())
+		return
+	}
+}
+
+```
