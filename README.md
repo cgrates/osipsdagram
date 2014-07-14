@@ -1,5 +1,6 @@
-OpenSIPS  Datagram Communication from Go
+OpenSIPS  Datagram Communication using Go
 ========================================
+[![Build Status](https://secure.travis-ci.org/cgrates/cgrates.png)](http://travis-ci.org/cgrates/osipsdagram)
 
 It offers both remote MI commands as well as UDP Event handler Server with auto subscribe.
 
