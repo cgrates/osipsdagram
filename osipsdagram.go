@@ -77,7 +77,7 @@ func (evSrv *OsipsEventServer) processReceivedData(rcvData []byte) error {
 
 // Instantiate event
 func (evSrv *OsipsEventServer) generateEvent() (*OsipsEvent, error) {
-	ev := &OsipsEvent{AttrValues: make(map[string]string), Values: make([]string, 0)}
+	ev := &OsipsEvent{AttrValues: make(map[string]string)}
 	if eventName, err := evSrv.eventsBuffer.ReadBytes('\n'); err != nil {
 		return nil, err
 	} else {

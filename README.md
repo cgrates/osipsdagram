@@ -23,7 +23,6 @@ import (
 	"fmt"
 )
 
-
 func printEvent(ev *osipsdagram.OsipsEvent) {
 	fmt.Printf("Got event: %+v\n", ev)
 }
