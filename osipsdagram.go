@@ -165,11 +165,12 @@ func (mi *OsipsMiDatagramConnector) SendCommand(cmd []byte) ([]byte, error) {
 	mi.procLock.Lock()
 	if mi.conn == nil {
 		for i := 0; i < mi.reconnects; i++ {
-			if err := mi.conn; err == nil {
+			if err := mi.connect(); err == nil {
 				break
 			}
 		}
 		if mi.conn == nil {
+			mi.procLock.Unlock()
 			return nil, errors.New("NOT_CONNECTED")
 		}
 	}
@@ -178,4 +179,25 @@ func (mi *OsipsMiDatagramConnector) SendCommand(cmd []byte) ([]byte, error) {
 		return nil, err
 	}
 	return mi.readDatagram()
+}
+
+type OsipsMiDaConPool struct {
+	osipsAddr  string
+	reconnects int
+	mis        chan *OsipsMiDatagramConnector // Here will be a reference towards the available connectors
+}
+
+func (pool *OsipsMiDaConPool) Pop() (*OsipsMiDatagramConnector, error) {
+	mi := <-self.mis
+	if mi == nil {
+		mi, err := NewOsipsMiDatagramConnector(pool.osipsAddr, reconnects int)(self.fsAddr, self.fsPasswd, self.reconnects, self.eventHandlers, self.eventFilters, self.logger)
+		if err != nil {
+			return nil, err
+		} else if self.readEvents {
+			go sock.ReadEvents() // Read events permanently, errors will be detected on connection returned to the pool
+		}
+		return sock, nil
+	} else {
+		return fsock, nil
+	}
 }
