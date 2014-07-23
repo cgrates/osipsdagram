@@ -133,6 +133,7 @@ func (mi *OsipsMiDatagramConnector) readDatagram() ([]byte, error) {
 	readBytes, _, err := mi.conn.ReadFromUDP(buf[0:])
 	mi.procLock.Unlock() // Finished processing, unlock
 	if err != nil {
+		mi.disconnect()
 		return nil, err
 	}
 	return buf[:readBytes], nil
