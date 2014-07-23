@@ -187,6 +187,7 @@ type OsipsMiDaConPool struct {
 	mis        chan *OsipsMiDatagramConnector // Here will be a reference towards the available connectors
 }
 
+/*
 func (pool *OsipsMiDaConPool) Pop() (*OsipsMiDatagramConnector, error) {
 	mi := <-self.mis
 	if mi == nil {
@@ -201,3 +202,4 @@ func (pool *OsipsMiDaConPool) Pop() (*OsipsMiDatagramConnector, error) {
 		return fsock, nil
 	}
 }
+*/
