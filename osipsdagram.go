@@ -143,6 +143,10 @@ func (mi *OsipsMiDatagramConnector) disconnect() {
 	mi.conn = nil
 }
 
+func (mi *OsipsMiDatagramConnector) connected() bool {
+	return mi.conn != nil
+}
+
 // Connect with re-connect and start also listener for inbound replies
 func (mi *OsipsMiDatagramConnector) connect() error {
 	var err error
@@ -180,25 +184,46 @@ func (mi *OsipsMiDatagramConnector) SendCommand(cmd []byte) ([]byte, error) {
 	return mi.readDatagram()
 }
 
-type OsipsMiDaConPool struct {
+func NewOsipsMiConPool(address string, reconnects int, maxConnections int) (*OsipsMiConPool, error) {
+	miPool := &OsipsMiConPool{osipsAddr: address, reconnects: reconnects, mis: make(chan *OsipsMiDatagramConnector, maxConnections)}
+	for i := 0; i < maxConnections; i++ {
+		miPool.mis <- nil // Empty instantiate so we do not need to wait later when we pop
+	}
+	return miPool, nil
+}
+
+type OsipsMiConPool struct {
 	osipsAddr  string
 	reconnects int
 	mis        chan *OsipsMiDatagramConnector // Here will be a reference towards the available connectors
 }
 
-/*
-func (pool *OsipsMiDaConPool) Pop() (*OsipsMiDatagramConnector, error) {
-	mi := <-self.mis
+func (mipool *OsipsMiConPool) PopMiConn() (*OsipsMiDatagramConnector, error) {
+	var err error
+	mi := <-mipool.mis
 	if mi == nil {
-		mi, err := NewOsipsMiDatagramConnector(pool.osipsAddr, reconnects int)(self.fsAddr, self.fsPasswd, self.reconnects, self.eventHandlers, self.eventFilters, self.logger)
+		mi, err = NewOsipsMiDatagramConnector(mipool.osipsAddr, mipool.reconnects)
 		if err != nil {
 			return nil, err
-		} else if self.readEvents {
-			go sock.ReadEvents() // Read events permanently, errors will be detected on connection returned to the pool
 		}
-		return sock, nil
+		return mi, nil
 	} else {
-		return fsock, nil
+		return mi, nil
 	}
 }
-*/
+
+func (mipool *OsipsMiConPool) PushMiConn(mi *OsipsMiDatagramConnector) {
+	if mi.connected() { // We only add it back if the socket is still connected
+		mipool.mis <- mi
+	}
+}
+
+func (mipool *OsipsMiConPool) SendCommand(cmd []byte) ([]byte, error) {
+	miConn, err := mipool.PopMiConn()
+	if err != nil {
+		return nil, err
+	} else {
+		defer mipool.PushMiConn(miConn)
+	}
+	return miConn.SendCommand(cmd)
+}
