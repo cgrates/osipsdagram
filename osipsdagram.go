@@ -132,8 +132,10 @@ func (mi *OsipsMiDatagramConnector) readDatagrams() error {
 	var buf [65457]byte
 	for {
 		if readBytes, _, err := mi.conn.ReadFromUDP(buf[0:]); err != nil {
+			mi.disconnect() // Disconnect on errors
 			return err
 		} else if err := mi.processReceivedData(buf[:readBytes]); err != nil {
+			mi.disconnect() // Disconnect on errors
 			return err
 		}
 
@@ -148,6 +150,11 @@ func (mi *OsipsMiDatagramConnector) processReceivedData(rcvData []byte) error {
 	mi.datagramReply <- mi.dagramBuffer.Bytes()
 	mi.dagramBuffer.Reset() // Have finished consuming the previous event data, empty write buffer
 	return nil
+}
+
+func (mi *OsipsMiDatagramConnector) disconnect() {
+	mi.conn.Close()
+	mi.conn = nil
 }
 
 // Connect with re-connect and start also listener for inbound replies
