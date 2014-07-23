@@ -9,6 +9,7 @@ package osipsdagram
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
 )
@@ -26,8 +27,7 @@ func NewEventServer(addrStr string, eventHandlers map[string][]func(*OsipsEvent)
 	} else if sock, err := net.ListenUDP("udp", addr); err != nil {
 		return nil, err
 	} else {
-		maxBuf := make([]byte, 0, 65457) // Given by opensips maximum datagram size
-		evSrv = &OsipsEventServer{conn: sock, eventsBuffer: bytes.NewBuffer(maxBuf), eventHandlers: eventHandlers}
+		evSrv = &OsipsEventServer{conn: sock, eventsBuffer: bytes.NewBuffer(nil), eventHandlers: eventHandlers}
 	}
 	return evSrv, nil
 }
@@ -40,7 +40,7 @@ type OsipsEventServer struct {
 }
 
 func (evSrv *OsipsEventServer) ServeEvents() error {
-	var buf [512]byte
+	var buf [65457]byte
 	for {
 		if readBytes, _, err := evSrv.conn.ReadFromUDP(buf[0:]); err != nil {
 			return err
@@ -54,9 +54,7 @@ func (evSrv *OsipsEventServer) ServeEvents() error {
 // Build event type out of received data
 func (evSrv *OsipsEventServer) processReceivedData(rcvData []byte) error {
 	if idxEndEvent := bytes.Index(rcvData, []byte("\n\n")); idxEndEvent == -1 { // Did not find end of event, write in the content buffer without triggering dispatching
-		if _, err := evSrv.eventsBuffer.Write(rcvData); err != nil { // Possible error here is buffer full
-			return err
-		}
+		return errors.New("PARSE_ERROR")
 	} else { // Try generating event out event data, and start fresh a new one after resetting the buffer
 		endEvent, startNewEvent := rcvData[:idxEndEvent+2], rcvData[idxEndEvent+2:]
 		if _, err := evSrv.eventsBuffer.Write(endEvent); err != nil { // Possible error here is buffer full
@@ -110,4 +108,83 @@ func (evSrv *OsipsEventServer) dispatchEvent(ev *OsipsEvent) error {
 		}
 	}
 	return nil
+}
+
+func NewOsipsMiDatagramConnector(addrStr string, reconnects int) (*OsipsMiDatagramConnector, error) {
+	mi := &OsipsMiDatagramConnector{osipsAddr: addrStr, reconnects: reconnects, dagramBuffer: bytes.NewBuffer(nil), datagramReply: make(chan []byte, 10)}
+	if err := mi.connect(); err != nil {
+		return nil, err
+	}
+	return mi, nil
+}
+
+// Represents connection to OpenSIPS mi_datagram
+type OsipsMiDatagramConnector struct {
+	osipsAddr     string
+	reconnects    int
+	dagramBuffer  *bytes.Buffer
+	datagramReply chan []byte // One complete reply as received, without any formatting
+	conn          *net.UDPConn
+}
+
+// This method will sit in background and continuosly process incoming datagrams
+func (mi *OsipsMiDatagramConnector) readDatagrams() error {
+	var buf [65457]byte
+	for {
+		if readBytes, _, err := mi.conn.ReadFromUDP(buf[0:]); err != nil {
+			return err
+		} else if err := mi.processReceivedData(buf[:readBytes]); err != nil {
+			return err
+		}
+
+	}
+}
+
+// Find replies boundaries and dispatch them inside datagramReply channel once completed
+func (mi *OsipsMiDatagramConnector) processReceivedData(rcvData []byte) error {
+	if _, err := mi.dagramBuffer.Write(rcvData); err != nil { // Possible error here is buffer full
+		return err
+	}
+	mi.datagramReply <- mi.dagramBuffer.Bytes()
+	mi.dagramBuffer.Reset() // Have finished consuming the previous event data, empty write buffer
+	return nil
+}
+
+// Connect with re-connect and start also listener for inbound replies
+func (mi *OsipsMiDatagramConnector) connect() error {
+	var err error
+	if mi.conn != nil {
+		if err = mi.conn.Close(); err != nil {
+			return err
+		}
+	}
+	udpAddr, err := net.ResolveUDPAddr("udp4", mi.osipsAddr)
+	if err != nil {
+		return err
+	}
+	mi.conn, err = net.DialUDP("udp", nil, udpAddr)
+	if err != nil {
+		return err
+	}
+	go mi.readDatagrams()
+	return nil
+}
+
+// Send a command, re-connect in background if that is the case
+func (mi *OsipsMiDatagramConnector) SendCommand(cmd []byte) ([]byte, error) {
+	if mi.conn == nil {
+		for i := 0; i < mi.reconnects; i++ {
+			if err := mi.conn; err == nil {
+				break
+			}
+		}
+		if mi.conn == nil {
+			return nil, errors.New("NOT_CONNECTED")
+		}
+	}
+	if _, err := mi.conn.Write(cmd); err != nil {
+		return nil, err
+	}
+	dagram := <-mi.datagramReply
+	return dagram, nil
 }

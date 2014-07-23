@@ -78,3 +78,38 @@ created::1405347928
 		t.Errorf("Expecting: %+v, received: %+v", eOEvent, oEvent)
 	}
 }
+
+func TestMiProcessReceivedData(t *testing.T) {
+	rawEvent := []byte(`200 OK
+dialog:active_dialogs = 0
+dialog:early_dialogs = 0
+dialog:processed_dialogs = 0
+dialog:expired_dialogs = 0
+dialog:failed_dialogs = 0
+dialog:create_sent = 0
+dialog:update_sent = 0
+dialog:delete_sent = 0
+dialog:create_recv = 0
+dialog:update_recv = 0
+dialog:delete_recv = 0
+tm:received_replies = 0
+tm:relayed_replies = 0
+tm:local_replies = 0
+tm:UAS_transactions = 0
+tm:UAC_transactions = 0
+tm:2xx_transactions = 0
+tm:3xx_transactions = 0
+tm:4xx_transactions = 0
+tm:5xx_transactions = 0
+tm:6xx_transactions = 0
+tm:inuse_transactions = 0
+
+`)
+	mi := OsipsMiDatagramConnector{dagramBuffer: bytes.NewBuffer(make([]byte, 0, 65457)), datagramReply: make(chan []byte, 10)}
+	if err := mi.processReceivedData(rawEvent); err != nil {
+		t.Error("Unexpected error: ", err)
+	}
+	if rcvDatagram := <-mi.datagramReply; !reflect.DeepEqual(rcvDatagram, rawEvent) {
+		t.Errorf("Expected %q, received: %q", rawEvent, rcvDatagram)
+	}
+}

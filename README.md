@@ -20,8 +20,8 @@ Copyright (C) ITsysCOM GmbH. All Rights Reserved.
 package main
 
 import (
-	"github.com/cgrates/osipsdagram"
 	"fmt"
+	"github.com/cgrates/osipsdagram"
 )
 
 func printEvent(ev *osipsdagram.OsipsEvent) {
@@ -29,16 +29,34 @@ func printEvent(ev *osipsdagram.OsipsEvent) {
 }
 
 func main() {
-	evsrv, err := osipsdagram.NewEventServer("localhost:2020", map[string][]func(*osipsdagram.OsipsEvent){
-		"E_SCRIPT_EVENT": []func(*osipsdagram.OsipsEvent){printEvent}})
+	evsrv, err := osipsdagram.NewEventServer("localhost:2020",
+		map[string][]func(*osipsdagram.OsipsEvent){
+			"E_ACC_CDR": []func(*osipsdagram.OsipsEvent){printEvent}})
 	if err != nil {
 		fmt.Printf("Cannot create new server: %s", err.Error())
 		return
 	}
-	if err := evsrv.ServeEvents(); err != nil {
-		fmt.Printf("Cannot create new server: %s", err.Error())
-		return
-	}
+	/*
+	// Test sending commands and receive raw reply
+		miConn, err := osipsdagram.NewOsipsMiDatagramConnector("localhost:8020", 3)
+		if err != nil {
+			fmt.Printf("Cannot create new mi connector: %s", err.Error())
+			return
+		}
+		cmd := []byte(`:get_statistics:
+			dialog:
+			tm:
+
+			`)
+
+		if reply, err := miConn.SendCommand(cmd); err != nil {
+			fmt.Printf("Got error when executing the command: %s\n", err.Error())
+		} else {
+			fmt.Printf("Got answer to command: %s\n", string(reply))
+		}
+	*/
+	evsrv.ServeEvents()
+
 }
 
 ```
