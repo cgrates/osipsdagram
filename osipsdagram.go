@@ -131,7 +131,6 @@ type OsipsMiDatagramConnector struct {
 func (mi *OsipsMiDatagramConnector) readDatagram() ([]byte, error) {
 	var buf [65457]byte
 	readBytes, _, err := mi.conn.ReadFromUDP(buf[0:])
-	mi.procLock.Unlock() // Finished processing, unlock
 	if err != nil {
 		mi.disconnect()
 		return nil, err
@@ -164,6 +163,7 @@ func (mi *OsipsMiDatagramConnector) connect() error {
 // Send a command, re-connect in background if needed
 func (mi *OsipsMiDatagramConnector) SendCommand(cmd []byte) ([]byte, error) {
 	mi.procLock.Lock()
+	defer mi.procLock.Unlock()
 	if mi.conn == nil {
 		for i := 0; i < mi.reconnects; i++ {
 			if err := mi.connect(); err == nil {
@@ -171,12 +171,10 @@ func (mi *OsipsMiDatagramConnector) SendCommand(cmd []byte) ([]byte, error) {
 			}
 		}
 		if mi.conn == nil {
-			mi.procLock.Unlock()
 			return nil, errors.New("NOT_CONNECTED")
 		}
 	}
 	if _, err := mi.conn.Write(cmd); err != nil {
-		mi.procLock.Unlock()
 		return nil, err
 	}
 	return mi.readDatagram()
