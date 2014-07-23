@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"sync"
 )
 
 type OsipsEvent struct {
@@ -111,7 +112,7 @@ func (evSrv *OsipsEventServer) dispatchEvent(ev *OsipsEvent) error {
 }
 
 func NewOsipsMiDatagramConnector(addrStr string, reconnects int) (*OsipsMiDatagramConnector, error) {
-	mi := &OsipsMiDatagramConnector{osipsAddr: addrStr, reconnects: reconnects, dagramBuffer: bytes.NewBuffer(nil), datagramReply: make(chan []byte, 10)}
+	mi := &OsipsMiDatagramConnector{osipsAddr: addrStr, reconnects: reconnects, procLock: new(sync.Mutex)}
 	if err := mi.connect(); err != nil {
 		return nil, err
 	}
@@ -120,36 +121,21 @@ func NewOsipsMiDatagramConnector(addrStr string, reconnects int) (*OsipsMiDatagr
 
 // Represents connection to OpenSIPS mi_datagram
 type OsipsMiDatagramConnector struct {
-	osipsAddr     string
-	reconnects    int
-	dagramBuffer  *bytes.Buffer
-	datagramReply chan []byte // One complete reply as received, without any formatting
-	conn          *net.UDPConn
+	osipsAddr  string
+	reconnects int
+	conn       *net.UDPConn
+	procLock   *sync.Mutex
 }
 
-// This method will sit in background and continuosly process incoming datagrams
-func (mi *OsipsMiDatagramConnector) readDatagrams() error {
+// Read from network buffer
+func (mi *OsipsMiDatagramConnector) readDatagram() ([]byte, error) {
 	var buf [65457]byte
-	for {
-		if readBytes, _, err := mi.conn.ReadFromUDP(buf[0:]); err != nil {
-			mi.disconnect() // Disconnect on errors
-			return err
-		} else if err := mi.processReceivedData(buf[:readBytes]); err != nil {
-			mi.disconnect() // Disconnect on errors
-			return err
-		}
-
+	readBytes, _, err := mi.conn.ReadFromUDP(buf[0:])
+	mi.procLock.Unlock() // Finished processing, unlock
+	if err != nil {
+		return nil, err
 	}
-}
-
-// Find replies boundaries and dispatch them inside datagramReply channel once completed
-func (mi *OsipsMiDatagramConnector) processReceivedData(rcvData []byte) error {
-	if _, err := mi.dagramBuffer.Write(rcvData); err != nil { // Possible error here is buffer full
-		return err
-	}
-	mi.datagramReply <- mi.dagramBuffer.Bytes()
-	mi.dagramBuffer.Reset() // Have finished consuming the previous event data, empty write buffer
-	return nil
+	return buf[:readBytes], nil
 }
 
 func (mi *OsipsMiDatagramConnector) disconnect() {
@@ -161,9 +147,7 @@ func (mi *OsipsMiDatagramConnector) disconnect() {
 func (mi *OsipsMiDatagramConnector) connect() error {
 	var err error
 	if mi.conn != nil {
-		if err = mi.conn.Close(); err != nil {
-			return err
-		}
+		mi.disconnect()
 	}
 	udpAddr, err := net.ResolveUDPAddr("udp4", mi.osipsAddr)
 	if err != nil {
@@ -173,12 +157,12 @@ func (mi *OsipsMiDatagramConnector) connect() error {
 	if err != nil {
 		return err
 	}
-	go mi.readDatagrams()
 	return nil
 }
 
-// Send a command, re-connect in background if that is the case
+// Send a command, re-connect in background if needed
 func (mi *OsipsMiDatagramConnector) SendCommand(cmd []byte) ([]byte, error) {
+	mi.procLock.Lock()
 	if mi.conn == nil {
 		for i := 0; i < mi.reconnects; i++ {
 			if err := mi.conn; err == nil {
@@ -190,8 +174,8 @@ func (mi *OsipsMiDatagramConnector) SendCommand(cmd []byte) ([]byte, error) {
 		}
 	}
 	if _, err := mi.conn.Write(cmd); err != nil {
+		mi.procLock.Unlock()
 		return nil, err
 	}
-	dagram := <-mi.datagramReply
-	return dagram, nil
+	return mi.readDatagram()
 }
