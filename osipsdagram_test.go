@@ -22,7 +22,7 @@ param1::value1
 	oes := OsipsEventServer{eventsBuffer: new(bytes.Buffer)}
 	eOEvent := &OsipsEvent{Name: "E_SCRIPT_EVENT", AttrValues: map[string]string{"param1": "value1", "param2": "value2"}}
 	oes.eventsBuffer.Write(rawEvent)
-	if oEvent, err := oes.generateEvent(); err != nil {
+	if oEvent, err := oes.generateEvent(nil); err != nil {
 		t.Error("Unexpected error: ", err)
 	} else if !reflect.DeepEqual(eOEvent, oEvent) {
 		t.Errorf("Expecting: %+v, received: %+v", eOEvent, oEvent)
@@ -40,7 +40,7 @@ value1
 	oes := OsipsEventServer{eventsBuffer: new(bytes.Buffer)}
 	eOEvent := &OsipsEvent{Name: "E_SCRIPT_EVENT", AttrValues: make(map[string]string), Values: []string{"value2", "value1", "value2", "value1"}}
 	oes.eventsBuffer.Write(rawEvent)
-	if oEvent, err := oes.generateEvent(); err != nil {
+	if oEvent, err := oes.generateEvent(nil); err != nil {
 		t.Error("Unexpected error: ", err)
 	} else if !reflect.DeepEqual(eOEvent, oEvent) {
 		t.Errorf("Expecting: %+v, received: %+v", eOEvent, oEvent)
@@ -72,7 +72,7 @@ created::1405347928
 			"duration": "6", "setuptime": "2", "created": "1405347928"},
 	}
 	oes.eventsBuffer.Write(rawEvent)
-	if oEvent, err := oes.generateEvent(); err != nil {
+	if oEvent, err := oes.generateEvent(nil); err != nil {
 		t.Error("Unexpected error: ", err)
 	} else if !reflect.DeepEqual(eOEvent, oEvent) {
 		t.Errorf("Expecting: %+v, received: %+v", eOEvent, oEvent)

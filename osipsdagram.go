@@ -16,9 +16,10 @@ import (
 )
 
 type OsipsEvent struct {
-	Name       string            // Event name
-	AttrValues map[string]string // Populate AttributeValue pairs here
-	Values     []string          // Populate single values here
+	Name              string            // Event name
+	AttrValues        map[string]string // Populate AttributeValue pairs here
+	Values            []string          // Populate single values here
+	OriginatorAddress *net.UDPAddr      // Address of the entity originating the package
 }
 
 func NewEventServer(addrStr string, eventHandlers map[string][]func(*OsipsEvent)) (*OsipsEventServer, error) {
@@ -43,25 +44,24 @@ type OsipsEventServer struct {
 func (evSrv *OsipsEventServer) ServeEvents() error {
 	var buf [65457]byte
 	for {
-		if readBytes, _, err := evSrv.conn.ReadFromUDP(buf[0:]); err != nil {
+		if readBytes, origAddr, err := evSrv.conn.ReadFromUDP(buf[0:]); err != nil {
 			return err
-		} else if err := evSrv.processReceivedData(buf[:readBytes]); err != nil {
+		} else if err := evSrv.processReceivedData(buf[:readBytes], origAddr); err != nil {
 			return err
 		}
-
 	}
 }
 
 // Build event type out of received data
-func (evSrv *OsipsEventServer) processReceivedData(rcvData []byte) error {
-	if idxEndEvent := bytes.Index(rcvData, []byte("\n\n")); idxEndEvent == -1 { // Did not find end of event, write in the content buffer without triggering dispatching
+func (evSrv *OsipsEventServer) processReceivedData(rcvData []byte, origAddr *net.UDPAddr) error {
+	if idxEndEvent := bytes.Index(rcvData, []byte("\n\n")); idxEndEvent == -1 { // Could not find event delimiter, something went wrong here
 		return errors.New("PARSE_ERROR")
 	} else { // Try generating event out event data, and start fresh a new one after resetting the buffer
 		endEvent, startNewEvent := rcvData[:idxEndEvent+2], rcvData[idxEndEvent+2:]
 		if _, err := evSrv.eventsBuffer.Write(endEvent); err != nil { // Possible error here is buffer full
 			return err
 		}
-		if newEvent, err := evSrv.generateEvent(); err != nil {
+		if newEvent, err := evSrv.generateEvent(origAddr); err != nil {
 			return err
 		} else if err := evSrv.dispatchEvent(newEvent); err != nil {
 			return err
@@ -75,7 +75,7 @@ func (evSrv *OsipsEventServer) processReceivedData(rcvData []byte) error {
 }
 
 // Instantiate event
-func (evSrv *OsipsEventServer) generateEvent() (*OsipsEvent, error) {
+func (evSrv *OsipsEventServer) generateEvent(fromAddr *net.UDPAddr) (*OsipsEvent, error) {
 	ev := &OsipsEvent{AttrValues: make(map[string]string)}
 	if eventName, err := evSrv.eventsBuffer.ReadBytes('\n'); err != nil {
 		return nil, err
