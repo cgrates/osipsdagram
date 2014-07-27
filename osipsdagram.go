@@ -75,8 +75,8 @@ func (evSrv *OsipsEventServer) processReceivedData(rcvData []byte, origAddr *net
 }
 
 // Instantiate event
-func (evSrv *OsipsEventServer) generateEvent(fromAddr *net.UDPAddr) (*OsipsEvent, error) {
-	ev := &OsipsEvent{AttrValues: make(map[string]string)}
+func (evSrv *OsipsEventServer) generateEvent(origAddr *net.UDPAddr) (*OsipsEvent, error) {
+	ev := &OsipsEvent{AttrValues: make(map[string]string), OriginatorAddress: origAddr}
 	if eventName, err := evSrv.eventsBuffer.ReadBytes('\n'); err != nil {
 		return nil, err
 	} else {
