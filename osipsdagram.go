@@ -41,11 +41,11 @@ type OsipsEventServer struct {
 	eventHandlers map[string][]func(*OsipsEvent)
 }
 
-func (evSrv *OsipsEventServer) ServeEvents(stopServing chan struct{}) error {
+func (evSrv *OsipsEventServer) ServeEvents(stopServing *chan struct{}) error {
 	var buf [65457]byte
 	for {
 		select {
-		case <-stopServing: // Break this loop from outside
+		case <-*stopServing: // Break this loop from outside
 			return nil
 		default:
 			if readBytes, origAddr, err := evSrv.conn.ReadFromUDP(buf[0:]); err != nil {
