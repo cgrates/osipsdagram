@@ -194,6 +194,14 @@ func (mi *OsipsMiDatagramConnector) SendCommand(cmd []byte) ([]byte, error) {
 	return mi.readDatagram()
 }
 
+// Useful to find out from outside the local IP/Port connected
+func (mi *OsipsMiDatagramConnector) LocallAddr() net.Addr {
+	if mi.conn == nil {
+		return nil
+	}
+	return mi.conn.LocalAddr()
+}
+
 func NewOsipsMiConPool(address string, reconnects int, maxConnections int) (*OsipsMiConPool, error) {
 	miPool := &OsipsMiConPool{osipsAddr: address, reconnects: reconnects, mis: make(chan *OsipsMiDatagramConnector, maxConnections)}
 	for i := 0; i < maxConnections; i++ {
