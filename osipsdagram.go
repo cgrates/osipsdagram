@@ -13,6 +13,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 )
 
 type OsipsEvent struct {
@@ -48,7 +49,11 @@ func (evSrv *OsipsEventServer) ServeEvents(stopServing chan struct{}) error {
 		case <-stopServing: // Break this loop from outside
 			return nil
 		default:
+			evSrv.conn.SetReadDeadline(time.Now().Add(time.Duration(1) * time.Second))
 			if readBytes, origAddr, err := evSrv.conn.ReadFromUDP(buf[0:]); err != nil {
+				if e, ok := err.(net.Error); ok && e.Timeout() && readBytes == 0 { // Not real error but our enforcement, continue reading events
+					continue
+				}
 				return err
 			} else if err := evSrv.processReceivedData(buf[:readBytes], origAddr); err != nil {
 				return err
