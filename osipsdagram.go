@@ -16,6 +16,14 @@ import (
 	"time"
 )
 
+func fib() func() int {
+	a, b := 0, 1
+	return func() int {
+		a, b = b, a+b
+		return a
+	}
+}
+
 type OsipsEvent struct {
 	Name              string            // Event name
 	AttrValues        map[string]string // Populate AttributeValue pairs here
@@ -122,7 +130,7 @@ func (evSrv *OsipsEventServer) dispatchEvent(ev *OsipsEvent) error {
 }
 
 func NewOsipsMiDatagramConnector(addrStr string, reconnects int) (*OsipsMiDatagramConnector, error) {
-	mi := &OsipsMiDatagramConnector{osipsAddr: addrStr, reconnects: reconnects, procLock: new(sync.Mutex)}
+	mi := &OsipsMiDatagramConnector{osipsAddr: addrStr, reconnects: reconnects, delayFunc: fib(), connMutex: new(sync.RWMutex)}
 	if err := mi.connect(); err != nil {
 		return nil, err
 	}
@@ -133,8 +141,9 @@ func NewOsipsMiDatagramConnector(addrStr string, reconnects int) (*OsipsMiDatagr
 type OsipsMiDatagramConnector struct {
 	osipsAddr  string
 	reconnects int
+	delayFunc  func() int
 	conn       *net.UDPConn
-	procLock   *sync.Mutex
+	connMutex  *sync.RWMutex
 }
 
 // Read from network buffer
@@ -149,24 +158,30 @@ func (mi *OsipsMiDatagramConnector) readDatagram() ([]byte, error) {
 }
 
 func (mi *OsipsMiDatagramConnector) disconnect() {
+	mi.connMutex.Lock()
+	defer mi.connMutex.Unlock()
 	mi.conn.Close()
 	mi.conn = nil
 }
 
 func (mi *OsipsMiDatagramConnector) connected() bool {
+	mi.connMutex.RLock()
+	defer mi.connMutex.RUnlock()
 	return mi.conn != nil
 }
 
 // Connect with re-connect and start also listener for inbound replies
 func (mi *OsipsMiDatagramConnector) connect() error {
 	var err error
-	if mi.conn != nil {
+	if mi.connected() {
 		mi.disconnect()
 	}
 	udpAddr, err := net.ResolveUDPAddr("udp4", mi.osipsAddr)
 	if err != nil {
 		return err
 	}
+	mi.connMutex.Lock()
+	defer mi.connMutex.Unlock()
 	mi.conn, err = net.DialUDP("udp", nil, udpAddr)
 	if err != nil {
 		return err
@@ -174,31 +189,50 @@ func (mi *OsipsMiDatagramConnector) connect() error {
 	return nil
 }
 
+func (mi *OsipsMiDatagramConnector) reconnectIfNeeded() error {
+	if mi.connected() { // No need to reconnect
+		return nil
+	}
+	var err error
+	i := 0
+	for {
+		if mi.reconnects != -1 && i >= mi.reconnects { // Maximum reconnects reached, -1 for infinite reconnects
+			break
+		}
+		if err = mi.connect(); err == nil || mi.connected() {
+			mi.delayFunc = fib() // Reset the reconnect delay
+			break                // No error or unrelated to connection
+		}
+		time.Sleep(time.Duration(mi.delayFunc()) * time.Second)
+		i++
+	}
+	if err == nil && !mi.connected() {
+		return errors.New("NOT_CONNECTED")
+	}
+	return err // nil or last error in the loop
+}
+
 // Send a command, re-connect in background if needed
 func (mi *OsipsMiDatagramConnector) SendCommand(cmd []byte) ([]byte, error) {
-	mi.procLock.Lock()
-	defer mi.procLock.Unlock()
-	if mi.conn == nil {
-		for i := 0; i < mi.reconnects; i++ {
-			if err := mi.connect(); err == nil {
-				break
-			}
-		}
-		if mi.conn == nil {
-			return nil, errors.New("NOT_CONNECTED")
-		}
-	}
-	if _, err := mi.conn.Write(cmd); err != nil {
+	if err := mi.reconnectIfNeeded(); err != nil {
 		return nil, err
 	}
+	mi.connMutex.RLock()
+	if _, err := mi.conn.Write(cmd); err != nil {
+		mi.connMutex.RUnlock()
+		return nil, err
+	}
+	mi.connMutex.RUnlock()
 	return mi.readDatagram()
 }
 
 // Useful to find out from outside the local IP/Port connected
 func (mi *OsipsMiDatagramConnector) LocallAddr() net.Addr {
-	if mi.conn == nil {
+	if !mi.connected() {
 		return nil
 	}
+	mi.connMutex.RLock()
+	defer mi.connMutex.RUnlock()
 	return mi.conn.LocalAddr()
 }
 
@@ -217,6 +251,9 @@ type OsipsMiConPool struct {
 }
 
 func (mipool *OsipsMiConPool) PopMiConn() (*OsipsMiDatagramConnector, error) {
+	if mipool == nil {
+		return nil, errors.New("UNCONFIGURED_OPENSIPS_POOL")
+	}
 	var err error
 	mi := <-mipool.mis
 	if mi == nil {
